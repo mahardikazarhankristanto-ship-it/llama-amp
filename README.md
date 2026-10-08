@@ -8,6 +8,20 @@ Llama Amp is an independent project, not affiliated with Winamp or Llama Group S
 contains no Winamp code, graphics or sounds: the built-in look is drawn from scratch, the startup jingle and example
 loop are synthesized by the app, and classic `.wsz` skins are loaded only when you choose them.
 
+## Install
+
+1. Download `Llama-Amp-<version>.dmg` from the
+   [Releases page](https://github.com/mahardikazarhankristanto-ship-it/llama-amp/releases).
+2. Open it and drag **Llama Amp** onto **Applications**.
+3. The first time you open it, macOS warns that it can't verify the developer (the app isn't signed with a paid
+   Apple Developer ID). To allow it once:
+   - **macOS 15 Sequoia and later:** open the app, click **Done**, then go to **System Settings → Privacy &
+     Security**, find "Llama Amp was blocked…" and click **Open Anyway**.
+   - **macOS 14 Sonoma:** right-click Llama Amp in Applications, choose **Open**, then **Open** again.
+   - Or in Terminal: `xattr -dr com.apple.quarantine "/Applications/Llama Amp.app"`
+
+Requires macOS 14 or later; runs natively on Apple silicon and Intel Macs.
+
 ## Build
 
 Needs only the Swift command-line tools (macOS 14+, Apple silicon):
@@ -17,6 +31,10 @@ Needs only the Swift command-line tools (macOS 14+, Apple silicon):
 The app lands in `build/Llama Amp.app` (1.7 MB). Drag it to /Applications to keep it. The release build drops
 unused code and symbols (kept in `build/LlamaAmp.dSYM` for reading crash reports) and ships MilkDrop's scripts
 xz-compressed (2.2 MB → 0.27 MB, unpacked as the page loads).
+
+    ./make-dmg.sh
+
+builds the universal app (Apple silicon + Intel) and packs it into `build/Llama-Amp-<version>.dmg` for a release.
 
     DEV=1 ./build.sh
 

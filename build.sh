@@ -1,26 +1,41 @@
 #!/bin/bash
 # Builds Llama Amp.app with the Swift command-line tools (no Xcode project needed).
-#   ./build.sh          release build: build/Llama Amp.app (stripped; symbols kept in build/LlamaAmp.dSYM)
-#   DEV=1 ./build.sh    developer build with the test modes (--audiotest, --featuretest, --djtest, --perf …):
-#                       build/dev/Llama Amp.app
+#   ./build.sh               release build: build/Llama Amp.app (stripped; symbols kept in build/*.dSYM)
+#   UNIVERSAL=1 ./build.sh   the same for Apple silicon and Intel Macs (what make-dmg.sh ships)
+#   DEV=1 ./build.sh         developer build with the test modes (--audiotest, --featuretest, --djtest, --perf …):
+#                            build/dev/Llama Amp.app
 set -euo pipefail
 cd "$(dirname "$0")"
-FLAGS=(-O -swift-version 5 -target arm64-apple-macos14.0)
+ARCHS=(arm64)
+[ "${UNIVERSAL:-}" = 1 ] && ARCHS=(arm64 x86_64)
 if [ "${DEV:-}" = 1 ]; then
   OUT=build/dev; EXTRA=(-D DEVTOOLS); WIDGET=()
 else
   OUT=build; EXTRA=(-g -Xlinker -dead_strip); WIDGET=(-Xlinker -dead_strip)
 fi
 APP="$OUT/Llama Amp.app"
+OBJ=build/obj
 
-rm -rf "$APP" build/iconset build/makeicon
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build
+# compile <output> <swiftc arguments…>: one binary per architecture, joined with lipo
+compile() {
+  local out=$1; shift
+  local parts=()
+  for a in "${ARCHS[@]}"; do
+    local o="$OBJ/$a-$(basename "$out")"
+    swiftc -O -swift-version 5 -target "$a-apple-macos14.0" "$@" -o "$o"
+    parts+=("$o")
+  done
+  lipo -create "${parts[@]}" -output "$out"
+}
 
-echo "• compiling"
-swiftc "${FLAGS[@]}" "${EXTRA[@]}" Sources/*.swift -o "$APP/Contents/MacOS/LlamaAmp"
+rm -rf "$APP" build/iconset build/makeicon "$OBJ"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$OBJ"
+
+echo "• compiling (${ARCHS[*]})"
+compile "$APP/Contents/MacOS/LlamaAmp" "${EXTRA[@]}" Sources/*.swift
 
 echo "• icon"
-swiftc "${FLAGS[@]}" Tools/MakeIcon/main.swift Sources/PixelBuffer.swift Sources/Covers.swift -o build/makeicon
+swiftc -O -swift-version 5 Tools/MakeIcon/main.swift Sources/PixelBuffer.swift Sources/Covers.swift -o build/makeicon
 build/makeicon build/AppIcon.iconset
 iconutil -c icns build/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 
@@ -38,16 +53,15 @@ done
 echo "• widget"
 WX="$APP/Contents/PlugIns/LlamaWidget.appex"
 mkdir -p "$WX/Contents/MacOS"
-swiftc "${FLAGS[@]}" ${WIDGET[@]+"${WIDGET[@]}"} -parse-as-library -application-extension Widget/LlamaWidget.swift -o "$WX/Contents/MacOS/LlamaWidget"
+compile "$WX/Contents/MacOS/LlamaWidget" ${WIDGET[@]+"${WIDGET[@]}"} -parse-as-library -application-extension Widget/LlamaWidget.swift
 cp Widget/Info.plist "$WX/Contents/Info.plist"
 
 if [ "${DEV:-}" != 1 ]; then
   echo "• stripping"
-  # swiftc -g leaves the debug symbols beside the binary; keep them out of the app (for reading crash reports)
-  rm -rf build/LlamaAmp.dSYM
-  mv "$APP/Contents/MacOS/LlamaAmp.dSYM" build/LlamaAmp.dSYM
+  # swiftc -g leaves the debug symbols beside each binary in build/obj; keep them (for reading crash reports)
+  for d in "$OBJ"/*-LlamaAmp.dSYM; do rm -rf "build/$(basename "$d")"; mv "$d" build/; done
   strip -x "$APP/Contents/MacOS/LlamaAmp" "$WX/Contents/MacOS/LlamaWidget"
 fi
 codesign --force --sign - --entitlements Widget/Widget.entitlements "$WX"
 codesign --force --sign - "$APP"
-echo "• built $APP ($(du -sh "$APP" | cut -f1))"
+echo "• built $APP ($(du -sh "$APP" | cut -f1), $(lipo -archs "$APP/Contents/MacOS/LlamaAmp"))"
