@@ -1,0 +1,10 @@
+# build output, test results, benchmark data (the GiantSteps audio is Beatport's copyrighted previews: never commit it)
+build/
+*.dSYM/
+
+# local tool folders
+.claude/
+Vendor/
+
+# macOS
+.DS_Store

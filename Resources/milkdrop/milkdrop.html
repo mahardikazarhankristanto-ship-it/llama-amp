@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="butterchurn.min.js"></script>
+<script src="butterchurnPresets.min.js"></script>
+<script src="butterchurnPresetsExtra.min.js"></script>
+<script src="butterchurnPresetsExtra2.min.js"></script>
+<script>
+// Llama Amp drives this page: it sends the waveform with every frame, so nothing here listens to audio itself.
+const LA = (() => {
+  const canvas = document.getElementById('c');
+  const bc = window.butterchurn.default || window.butterchurn;
+  const packs = [window.butterchurnPresets, window.butterchurnPresetsExtra, window.butterchurnPresetsExtra2];
+  const presets = {};
+  for (const p of packs) { if (p) Object.assign(presets, (p.default || p).getPresets()); }
+  // a few community preset names are crude; they'd scroll across the marquee, so leave those out
+  const crude = /\b(cum|fuck|shit|sex|porn|dick|pussy|tits?|nazi)\b/i;
+  const names = Object.keys(presets).filter(n => !crude.test(n)).sort((a, b) => a.localeCompare(b));
+  const wave = new Uint8Array(1024).fill(128);
+  let viz = null, current = -1;
+
+  function size(w, h, scale, meshW, meshH) {
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    if (viz) viz.setRendererSize(canvas.width, canvas.height, { meshWidth: meshW || 48, meshHeight: meshH || 36 });
+  }
+
+  return {
+    names: () => names,
+    // mesh: the warp grid the per-vertex equations run on (MilkDrop's default is 48x36; fewer is cheaper)
+    init(w, h, scale, meshW, meshH) {
+      size(w, h, scale);
+      viz = bc.createVisualizer(null, canvas, { width: canvas.width, height: canvas.height, pixelRatio: 1, textureRatio: 1,
+                                                meshWidth: meshW || 48, meshHeight: meshH || 36 });
+      return names.length;
+    },
+    size,
+    preset(i, blend) {
+      if (!viz || !names.length) return '';
+      current = ((i % names.length) + names.length) % names.length;
+      viz.loadPreset(presets[names[current]], blend);
+      return names[current];
+    },
+    // for tests: render one more frame and read the middle row back while the drawing buffer is still valid
+    probe() {
+      if (!viz) return null;
+      viz.render({ audioLevels: { timeByteArray: wave, timeByteArrayL: wave, timeByteArrayR: wave } });
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      const w = canvas.width, px = new Uint8Array(4 * w);
+      gl.readPixels(0, Math.floor(canvas.height / 2), w, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let sum = 0, sq = 0;
+      for (let k = 0; k < px.length; k += 4) { const v = (px[k] + px[k + 1] + px[k + 2]) / 3; sum += v; sq += v * v; }
+      const mean = sum / w;
+      return [mean, Math.sqrt(Math.max(0, sq / w - mean * mean)), canvas.width, canvas.height];
+    },
+    // b64: 1024 unsigned 8-bit samples (128 = silence)
+    frame(b64) {
+      if (!viz) return;
+      const s = atob(b64);
+      for (let i = 0; i < 1024; i++) wave[i] = s.charCodeAt(i);
+      viz.render({ audioLevels: { timeByteArray: wave, timeByteArrayL: wave, timeByteArrayR: wave } });
+    },
+  };
+})();
+</script>
+</body>
+</html>
