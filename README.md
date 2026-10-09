@@ -28,8 +28,9 @@ loop are synthesized by the app, and classic `.wsz` skins are loaded only when y
   dancing llama.
 - **Synced lyrics**, karaoke-style, from `.lrc` files, the song's own tags or LRCLIB.
 - **Library**: music library with play counts, a tag and cover editor (MP3, FLAC, M4A), jump to file.
-- **Mac integration**: a [desktop widget](#desktop-widget) (now playing, a llama walking to the end of the song,
-  playback buttons), a menu-bar controller, a Dock icon where the llama walks too, media keys and Control Center.
+- **Mac integration**: a [desktop player](#desktop-player) that sits on your desktop like a widget (now playing, a
+  llama walking to the end of the song, playback buttons), a menu-bar controller, a Dock icon where the llama walks
+  too, media keys and Control Center.
 
 ## Install
 
@@ -65,9 +66,9 @@ builds `build/dev/Llama Amp.app` with the test modes compiled in (`--audiotest [
 `--featuretest <dir>`, `--djtest`, `--djloop [n]`, `--uitest <dir>`, `--readmeshots <dir>`, `--perf`, `--visbench`, `--snapshot <dir>`). Test modes never save
 settings and never change the output device's volume or sample rate beyond the test itself.
 
-The README pictures are made by the app itself: `--readmeshots docs` (developer build) writes `screenshot.png` and
-`demo.gif`, and `Tools/WidgetShot` draws the widget (`swiftc -D WIDGET_PREVIEW Tools/WidgetShot/main.swift
-Widget/LlamaWidget.swift Sources/PixelBuffer.swift Sources/Covers.swift -o build/widgetshot && build/widgetshot docs/widget.png`).
+The README pictures are made by the app itself (developer build): `--readmeshots docs` writes `screenshot.png` and
+`demo.gif`, `--desktopplayershot docs/desktop-player.png` draws the desktop player, and `--desktopplayer` shows it
+on the desktop with the example loop playing (muted) to try it by hand.
 
 ## Keys
 
@@ -90,13 +91,18 @@ Double-click a title bar to collapse it to a strip (windowshade). Drag the playl
   untouched frames/comments are kept.
 - **EQ presets**: save your own, import/export Winamp `.eqf` (or a whole `winamp.q1`), optional per-song EQ memory.
 
-## Desktop widget
+## Desktop player
 
-![The Llama Amp desktop widget in small and medium sizes: cover, title, tempo and key, a pixel llama walking toward a flag as the song plays, and playback buttons](docs/widget.png)
+![The Llama Amp desktop player in small and medium sizes: cover, title, tempo and key, a pixel llama walking toward a flag as the song plays, and playback buttons](docs/desktop-player.png)
 
-Right-click the desktop → Edit Widgets → search "Llama Amp" (small and medium sizes). The llama walks to the end of
-the song; the medium widget's buttons open `llamaamp://prev|playpause|next`. Built with the command-line tools only,
-so the buttons are links into the app rather than background App Intents.
+A widget-style card on your desktop: it sits behind every app window (like macOS widgets), on every Space. The llama
+walks toward the flag as the song plays; the medium size adds tempo, key and playback buttons, and clicking the cover
+or title brings Llama Amp forward. Drag it anywhere (it remembers the spot); right-click it to switch between small
+and medium or to hide it. Turn it on or off under View → Desktop Player, or in the menu-bar controller.
+
+It is drawn by the app itself. A real macOS widget (WidgetKit) is also in the source (`Widget/`), but macOS only
+runs widgets from apps signed with an Apple developer certificate, so it is left out of these builds; with a
+certificate, `WIDGET=1 ./build.sh` bundles it.
 
 ## Winamp skins
 
@@ -167,7 +173,7 @@ Llama Amp has no accounts, analytics or tracking. It goes online only for:
   song that's playing are sent to lrclib.net. Results are cached in `~/Library/Application Support/LlamaAmp/Lyrics`.
 - **The Skin Browser**, only while you use it: your search text goes to the Winamp Skin Museum (api.webamp.org),
   and the skins you pick are downloaded from it.
-- **The desktop widget** reads a small now-playing file the app writes; nothing leaves the Mac.
+- **The desktop player** is part of the app; nothing leaves the Mac.
 
 ## License and credits
 
@@ -201,7 +207,8 @@ from the GiantSteps Key data set (Knees et al., ISMIR 2015), which isn't include
 - `Sources/JumpPanel.swift`, `Sources/StatusMenu.swift` – jump to file, menu bar/Dock controls, startup sound
 - `Sources/TrackAnalysis.swift` – key detection, loudness, analysis cache; `Sources/TagIO.swift` – tag reading/writing
 - `Sources/MediaLibrary.swift`, `Sources/LibraryWindow.swift`, `Sources/FileInfoWindow.swift`, `Sources/SkinBrowser.swift`, `Sources/EQPresets.swift`
-- `Widget/` – the WidgetKit extension; `Sources/WidgetBridge.swift` feeds it
+- `Sources/DesktopPlayer.swift` – the desktop player; `Shared/` – the pixel llama and cover views it shares with the widget
+- `Widget/` – the WidgetKit extension (bundled with `WIDGET=1`, needs a signed build); `Sources/WidgetBridge.swift` feeds it
 
 Key benchmark: `Tools/KeyBench` (`keybench <GiantSteps dir>`; `ONLY=`, `EXPORT=`, `CONF=1` options). The data set
 isn't included (its audio is Beatport's); download it with the scripts at

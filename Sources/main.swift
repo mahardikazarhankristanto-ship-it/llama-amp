@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Player.shared.boot()
         NowPlaying.setup()
         StatusMenu.shared.apply()
+        DesktopPlayer.shared.apply()
         Windows.shared.startTicking()
         if !testing { StartupSound.playOnLaunch() }
         #if DEVTOOLS

@@ -38,6 +38,7 @@ enum AppMenus {
             MI("Menu Bar Controller", check: { p.settings.showStatusItem }) {
                 p.settings.showStatusItem.toggle(); p.settings.save(); StatusMenu.shared.apply()
             },
+            MI("Desktop Player", check: { p.settings.desktopPlayer }) { DesktopPlayer.shared.toggle() },
             sep,
             MI("Quit Llama Amp", key: "q") { NSApp.terminate(nil) },
         ])
@@ -303,6 +304,7 @@ enum AppMenus {
             MI("Always on Top", key: "t", mods: [.command, .option], check: { p.settings.onTop }) { p.settings.onTop.toggle(); p.settings.save(); Windows.shared.applyLevel() },
             MI("Reset Window Layout") { Windows.shared.defaultLayout() },
             MI("Menu Bar Controller", check: { p.settings.showStatusItem }) { p.settings.showStatusItem.toggle(); p.settings.save(); StatusMenu.shared.apply() },
+            MI("Desktop Player", check: { p.settings.desktopPlayer }) { DesktopPlayer.shared.toggle() },
             startupMenu(),
         ])
         let win = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")

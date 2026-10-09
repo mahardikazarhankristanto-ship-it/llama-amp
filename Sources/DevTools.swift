@@ -1,11 +1,12 @@
 #if DEVTOOLS
 import AppKit
+import SwiftUI
 
 /// Test and benchmark modes, compiled only into the developer build (`DEV=1 ./build.sh`).
 @MainActor
 enum DevTools {
     static var runsBeforeWindows = false
-    nonisolated static let modes = ["--readmeshots", "--djloop", "--djfirst", "--djtest", "--snapshot", "--skintest", "--uitest", "--perf", "--audiotest", "--featuretest", "--visbench"]
+    nonisolated static let modes = ["--desktopplayershot", "--desktopplayer", "--readmeshots", "--djloop", "--djfirst", "--djtest", "--snapshot", "--skintest", "--uitest", "--perf", "--audiotest", "--featuretest", "--visbench"]
     nonisolated static var isTestRun: Bool { modes.contains { CommandLine.arguments.contains($0) } }
 
     /// Before the windows exist: test settings (never saved, no device changes). Returns whether a test mode is on.
@@ -30,6 +31,10 @@ enum DevTools {
         if CommandLine.arguments.contains("--djtest") { DJTest.run(); return }
         if CommandLine.arguments.contains("--djfirst") { DJFirst.run(); return }
         if CommandLine.arguments.contains("--djloop") { DJLoop.run(); return }
+        if CommandLine.arguments.contains("--desktopplayer") { DesktopPlayerTest.run(); return }
+        if let i = CommandLine.arguments.firstIndex(of: "--desktopplayershot"), i + 1 < CommandLine.arguments.count {
+            DesktopPlayerTest.picture(CommandLine.arguments[i + 1]); exit(0)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--readmeshots"), i + 1 < CommandLine.arguments.count {
             ReadmeShots.run(out: CommandLine.arguments[i + 1]); return
         }
@@ -601,6 +606,61 @@ enum ReadmeShots {
         let fp = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay, kCGImagePropertyGIFUnclampedDelayTime: delay]] as CFDictionary
         for f in frames { CGImageDestinationAddImage(dest, f, fp) }
         CGImageDestinationFinalize(dest)
+    }
+}
+
+/// Development aid (--desktopplayer [seconds]): shows the desktop player with the example loop playing (muted) and
+/// reports its window; stays up for the given time (default 60 s) so it can be tried by hand, then quits.
+@MainActor
+enum DesktopPlayerTest {
+    static func run() {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        let p = Player.shared, args = CommandLine.arguments
+        let secs = args.firstIndex(of: "--desktopplayer").flatMap { $0 + 1 < args.count ? Double(args[$0 + 1]) : nil } ?? 60
+        p.tracks.removeAll(); p.current = nil
+        p.add([Demo.url], autoplay: false, quiet: true)
+        p.settings.desktopPlayer = true; p.settings.desktopPlayerMedium = true; p.settings.desktopPlayerOrigin = []
+        if let i = args.firstIndex(of: "--at"), i + 2 < args.count, let x = Double(args[i + 1]), let y = Double(args[i + 2]) { p.settings.desktopPlayerOrigin = [x, y] }
+        p.settings.vol = 0; p.applyVolume()
+        p.play(0); p.audio.setVolume(0, balance: 0)
+        DesktopPlayer.shared.apply(force: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            MainActor.assumeIsolated {
+                guard let w = DesktopPlayer.shared.window else { print("FAIL  no desktop player window"); return }
+                let desktop = Int(CGWindowLevelForKey(.desktopIconWindow)), normal = Int(CGWindowLevelForKey(.normalWindow))
+                print("window: frame \(w.frame.integral), level \(w.level.rawValue) (desktop icons \(desktop), normal windows \(normal)), visible \(w.isVisible), all Spaces \(w.collectionBehavior.contains(.canJoinAllSpaces))")
+                print((w.level.rawValue > desktop && w.level.rawValue < normal ? "PASS" : "FAIL") + "  sits above the desktop icons and below every app window")
+                if let v = w.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+                    v.cacheDisplay(in: v.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "build/desktop-player-live.png"))
+                    print("saved build/desktop-player-live.png")
+                }
+                print("ready for \(Int(secs)) s")
+                DispatchQueue.main.asyncAfter(deadline: .now() + secs) { MainActor.assumeIsolated { print("state at end: \(p.state)"); NSApp.terminate(nil) } }
+            }
+        }
+    }
+}
+
+extension DesktopPlayerTest {
+    /// The README picture: the desktop player in both sizes, drawn by its own view with sample content.
+    static func picture(_ path: String) {
+        func card(_ medium: Bool) -> some View {
+            let m = DesktopPlayerModel()
+            m.title = "Example Loop"; m.artist = "Llama Amp"; m.detail = "138 BPM · 8B"
+            m.playing = true; m.progress = 0.42; m.frame = 1; m.medium = medium
+            m.cover = Covers.demo().cgImage().map { NSImage(cgImage: $0, size: NSSize(width: 64, height: 64)) }
+            return DesktopPlayerView(m: m).shadow(color: .black.opacity(0.45), radius: 14, y: 6)
+        }
+        let scene = HStack(spacing: 22) { card(false); card(true) }
+            .padding(34)
+            .background(LinearGradient(colors: [Color(red: 0.16, green: 0.12, blue: 0.30), Color(red: 0.55, green: 0.24, blue: 0.30)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing))
+        let r = ImageRenderer(content: scene)
+        r.scale = 2
+        guard let img = r.cgImage, let png = NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:]) else { print("render failed"); return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("\(path): \(img.width)×\(img.height)")
     }
 }
 #endif

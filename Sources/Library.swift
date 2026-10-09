@@ -83,6 +83,10 @@ struct Settings: Codable {
     var mixWaveforms = true
     var milkPreset = ""
     var milkLock = false
+    /// The widget-style card on the desktop.
+    var desktopPlayer = true
+    var desktopPlayerMedium = true
+    var desktopPlayerOrigin: [Double] = []
 
     /// The app's identifier before it was published; settings saved under it are carried over once.
     static let legacyDomain = "local.llamaamp.LlamaAmp"
@@ -126,6 +130,8 @@ extension Settings {
         bpSaved = v(.bpSaved, bpSaved); matchRate = v(.matchRate, matchRate); gapless = v(.gapless, gapless)
         outputUID = v(.outputUID, outputUID); showLyrics = v(.showLyrics, showLyrics); onlineLyrics = v(.onlineLyrics, onlineLyrics)
         smartNext = v(.smartNext, smartNext); mixWaveforms = v(.mixWaveforms, mixWaveforms); milkPreset = v(.milkPreset, milkPreset); milkLock = v(.milkLock, milkLock)
+        desktopPlayer = v(.desktopPlayer, desktopPlayer); desktopPlayerMedium = v(.desktopPlayerMedium, desktopPlayerMedium)
+        desktopPlayerOrigin = v(.desktopPlayerOrigin, desktopPlayerOrigin)
         // first launch of this version: bit-perfect starts on, keeping what it turns off so switching it off restores it
         if let bp = try? c.decodeIfPresent(Bool.self, forKey: .bitPerfect) { bitPerfect = bp } else {
             bitPerfect = false

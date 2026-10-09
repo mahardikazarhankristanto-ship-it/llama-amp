@@ -109,6 +109,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             MI("Auto EQ", mods: [], check: { p.settings.auto }) { p.setAuto(!p.settings.auto) },
             MI("Bit-Perfect", mods: [], check: { p.settings.bitPerfect }) { p.setBitPerfect(!p.settings.bitPerfect) },
             MI("Lyrics", mods: [], check: { p.settings.showLyrics }) { p.toggleLyrics() },
+            MI("Desktop Player", mods: [], check: { p.settings.desktopPlayer }) { DesktopPlayer.shared.toggle() },
         ]
     }
 

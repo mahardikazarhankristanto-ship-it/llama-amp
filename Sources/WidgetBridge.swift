@@ -1,7 +1,7 @@
 import AppKit
 import WidgetKit
 
-/// Feeds the desktop widget: a small state file plus the pixelated cover, rewritten when the song,
+/// Feeds the WidgetKit desktop widget (when it is bundled): a small state file plus the pixelated cover, rewritten when the song,
 /// play state or position (after a seek) changes. The widget walks the llama forward on its own between updates.
 @MainActor
 enum WidgetBridge {
@@ -16,8 +16,14 @@ enum WidgetBridge {
         return d
     }
 
+    /// The WidgetKit widget is only bundled in builds signed with an Apple developer certificate (WIDGET=1 ./build.sh);
+    /// without it there is nothing to feed.
+    static let widgetBundled: Bool = Bundle.main.builtInPlugInsURL.map {
+        FileManager.default.fileExists(atPath: $0.appendingPathComponent("LlamaWidget.appex").path)
+    } ?? false
+
     static func tick(_ now: Double) {
-        guard !Settings.readOnly else { return }
+        guard !Settings.readOnly, widgetBundled else { return }
         let p = Player.shared
         let pos = p.audio.currentTime
         // position drift beyond 2 s from where the widget thinks we are means a seek happened
