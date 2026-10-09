@@ -1,5 +1,10 @@
 # Llama Amp for macOS
 
+<p align="center">
+  <img src="docs/demo.gif" width="570"
+       alt="Llama Amp playing: spectrum, fire and tunnel visualizers with the dancing llama, synced lyrics scrolling, then a beat-matched DJ mix shown as two waveform decks">
+</p>
+
 A native AppKit music player with a classic 2.x-style skin: LCD time display, mini spectrum,
 pixelated cover art, eight visualizers (with fullscreen), a 10-band EQ with presets and a
 drag-and-drop playlist that is remembered between launches.
@@ -7,6 +12,8 @@ drag-and-drop playlist that is remembered between launches.
 Llama Amp is an independent project, not affiliated with Winamp or Llama Group SA (Winamp is their trademark). It
 contains no Winamp code, graphics or sounds: the built-in look is drawn from scratch, the startup jingle and example
 loop are synthesized by the app, and classic `.wsz` skins are loaded only when you choose them.
+
+![Llama Amp's four windows: the main player, visualizer with pixelated cover art, 10-band equalizer and playlist](docs/screenshot.png)
 
 ## Install
 
@@ -39,7 +46,7 @@ builds the universal app (Apple silicon + Intel) and packs it into `build/Llama-
     DEV=1 ./build.sh
 
 builds `build/dev/Llama Amp.app` with the test modes compiled in (`--audiotest [--bugs] [--live]`,
-`--featuretest <dir>`, `--djtest`, `--uitest <dir>`, `--perf`, `--visbench`, `--snapshot <dir>`). Test modes never save
+`--featuretest <dir>`, `--djtest`, `--djloop [n]`, `--uitest <dir>`, `--readmeshots <dir>`, `--perf`, `--visbench`, `--snapshot <dir>`). Test modes never save
 settings and never change the output device's volume or sample rate beyond the test itself.
 
 ## Keys

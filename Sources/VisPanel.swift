@@ -13,6 +13,9 @@ final class VisPanel: Panel {
         return v
     }()
     private var overlayImage: CGImage?
+    /// The frame shown when lyrics are on: the visualizer's frame plus the text. The visualizer keeps its own frame
+    /// untouched, because the feedback effects (tunnel, scope, radial, starfield) build each frame from the last one.
+    private let shownBuf = PixelBuffer(BigVis.W, BigVis.H)
     private var shownMode = -1
     var showingMilk: Bool { shownMode == BigVis.milkMode }
     var currentModeForTest: Int { shownMode }
@@ -126,7 +129,14 @@ final class VisPanel: Panel {
             decks.render(big.buf, p)
         } else {
             big.render(mode: mode, now: now, f: p.freq, w: p.wave, lv: p.lv, live: p.state == .playing, sr: p.audio.graphRate, cover: cover)
-            if let (t, ly) = lyricLines { lyrics.draw(ly, for: t, time: p.audio.currentTime, duration: p.audio.duration, now: now, into: big.buf) }
+            if let (t, ly) = lyricLines {
+                shownBuf.px = big.buf.px
+                lyrics.draw(ly, for: t, time: p.audio.currentTime, duration: p.audio.duration, now: now, into: shownBuf)
+                bigImage = shownBuf.cgImage()
+                bigView.isHidden = shaded
+                if !shaded { bigView.show(bigImage) }
+                return
+            }
         }
         bigImage = big.buf.cgImage()
         bigView.isHidden = shaded

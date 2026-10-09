@@ -5,7 +5,7 @@ import AppKit
 @MainActor
 enum DevTools {
     static var runsBeforeWindows = false
-    nonisolated static let modes = ["--djloop", "--djfirst", "--djtest", "--snapshot", "--skintest", "--uitest", "--perf", "--audiotest", "--featuretest", "--visbench"]
+    nonisolated static let modes = ["--readmeshots", "--djloop", "--djfirst", "--djtest", "--snapshot", "--skintest", "--uitest", "--perf", "--audiotest", "--featuretest", "--visbench"]
     nonisolated static var isTestRun: Bool { modes.contains { CommandLine.arguments.contains($0) } }
 
     /// Before the windows exist: test settings (never saved, no device changes). Returns whether a test mode is on.
@@ -30,6 +30,9 @@ enum DevTools {
         if CommandLine.arguments.contains("--djtest") { DJTest.run(); return }
         if CommandLine.arguments.contains("--djfirst") { DJFirst.run(); return }
         if CommandLine.arguments.contains("--djloop") { DJLoop.run(); return }
+        if let i = CommandLine.arguments.firstIndex(of: "--readmeshots"), i + 1 < CommandLine.arguments.count {
+            ReadmeShots.run(out: CommandLine.arguments[i + 1]); return
+        }
         if CommandLine.arguments.contains("--visbench") {
             // cost of each big visualizer mode per frame, with synthetic audio data
             let b = BigVis(), small = SmallVis()
@@ -459,6 +462,145 @@ enum DJLoop {
             watch()
         }
         next()
+    }
+}
+
+/// Development aid (--readmeshots <dir>): the README's screenshot.png (all windows) and demo.gif (main + visualizer:
+/// visualizers, the dancing llama, lyrics, a beat-matched DJ mix). Uses the example loop and made-up song names only.
+@MainActor
+enum ReadmeShots {
+    static func run(out: String) {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        let p = Player.shared, w = Windows.shared
+        func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+        // a clean stage: built-in look, all windows, size 2x, default layout
+        p.settings.showEq = true; p.settings.showPl = true; p.settings.showVw = true
+        p.settings.vis = 0; p.settings.remaining = false; p.settings.showLyrics = true; p.settings.onlineLyrics = false
+        p.settings.mixWaveforms = false; p.settings.mixBeats = 8
+        p.setScale(2)
+        w.defaultLayout()
+        // the example loop plus a few copies under made-up names
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("llamaamp-readme", isDirectory: true)
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let names = ["Pixel Pasture - Night Drive", "The Alpacas - Hoof Beat", "DJ Cria - Andes Sunrise", "Lo-Fi Llama - Study Loop",
+                     "Wool & Wire - Mountain Pass", "Chiptune Herd - Level Select"]
+        var urls = [Demo.url]
+        for n in names { let u = dir.appendingPathComponent(n + ".flac"); try? FileManager.default.copyItem(at: Demo.url, to: u); urls.append(u) }
+        p.tracks.removeAll(); p.current = nil
+        p.add(urls, autoplay: false, quiet: true)
+        // a gentle "smile" on the EQ
+        p.settings.auto = false; p.settings.perSongEQ = false
+        p.settings.eqOn = true; p.settings.bands = [5, 3.5, 1.5, -1, -2.5, -1.5, 1, 3, 4.5, 5.5]; p.settings.pre = 0
+        p.applyEQ(); p.eqChanged()
+        p.setDJMode(2)
+        p.settings.vol = 0.8; p.audio.setVolume(0, balance: 0)   // the slider shows 80 %, the speakers stay silent
+        for t in p.tracks.prefix(2) { p.ensureAnalysis(t, urgent: true) }
+
+        // the visuals tick at 30 fps whether or not this screen shows the windows
+        let tick = Timer(timeInterval: 1.0 / 30, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                let now = CACurrentMediaTime()
+                p.tick(now); w.main.tick(now, visible: true); w.vis.tick(now, visible: true)
+            }
+        }
+        RunLoop.main.add(tick, forMode: .common)
+
+        func snapshot(_ keys: [String], k: CGFloat, pad: CGFloat, bg: CGColor, shadow: Bool) -> CGImage? {
+            let es = w.entries.filter { keys.contains($0.key) && $0.window.isVisible }
+            guard !es.isEmpty else { return nil }
+            let u = es.map(\.window.frame).reduce(es[0].window.frame) { $0.union($1) }
+            let W = Int((u.width + 2 * pad) * k), H = Int((u.height + 2 * pad) * k)
+            guard let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+            ctx.setFillColor(bg); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+            ctx.interpolationQuality = .none
+            for e in es {
+                e.host.displayIfNeeded()
+                guard let layer = e.window.contentView?.layer else { continue }
+                let f = e.window.frame
+                let r = CGRect(x: (f.minX - u.minX + pad) * k, y: (f.minY - u.minY + pad) * k, width: f.width * k, height: f.height * k)
+                if shadow {
+                    ctx.saveGState()
+                    ctx.setShadow(offset: CGSize(width: 0, height: -5 * k), blur: 16 * k, color: CGColor(gray: 0, alpha: 0.55))
+                    ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(r)
+                    ctx.restoreGState()
+                }
+                ctx.saveGState()
+                ctx.translateBy(x: r.minX, y: r.maxY); ctx.scaleBy(x: k, y: -k)
+                layer.render(in: ctx)
+                ctx.restoreGState()
+            }
+            return ctx.makeImage()
+        }
+        func savePNG(_ img: CGImage?, _ name: String) {
+            guard let img else { return }
+            try? NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(out)/\(name)"))
+        }
+
+        var frames: [CGImage] = []
+        let fps = 10.0
+        func record(_ secs: Double, then next: @escaping @MainActor () -> Void) {
+            var n = Int(secs * fps)
+            func grab() {
+                if let f = snapshot(["main", "vis"], k: 1, pad: 10, bg: CGColor(red: 0.11, green: 0.11, blue: 0.15, alpha: 1), shadow: false) { frames.append(f) }
+                n -= 1
+                if n > 0 { after(1 / fps) { grab() } } else { next() }
+            }
+            grab()
+        }
+
+        func waitReady(_ go: @escaping @MainActor () -> Void) {
+            if p.tracks.prefix(2).allSatisfy({ $0.beats != nil || $0.beatsFailed }) { go() } else { after(0.2) { waitReady(go) } }
+        }
+        waitReady {
+            print("analysis ready; playing")
+            p.play(0)
+            p.audio.setVolume(0, balance: 0)
+            p.seek(to: 3)
+            w.vis.setMode(0)
+            after(2.5) {
+                // the still: every window, at 2x
+                savePNG(snapshot(["main", "vis", "eq", "pl"], k: 2, pad: 28, bg: CGColor(red: 0.10, green: 0.10, blue: 0.14, alpha: 1), shadow: true), "screenshot.png")
+                print("screenshot.png written")
+                record(3) {
+                    w.vis.setMode(4)                      // fire
+                    record(3) {
+                        w.vis.setMode(3)                  // tunnel, with lyrics scrolling over it
+                        if let t = p.current {
+                            t.lyrics = Lyrics.parse("""
+                            [00:08.00]Pixels in the pasture
+                            [00:10.20]Sixteen bars of light
+                            [00:12.40]Turn the volume up a little
+                            [00:14.60]And the llama dances all night
+                            """, source: "demo")
+                            t.lyricsState = .done
+                        }
+                        record(4.5) {
+                            p.current?.lyrics = nil
+                            // a beat-matched DJ mix into the next song, shown as two decks of waveforms
+                            p.settings.mixWaveforms = true
+                            w.vis.setMode(0)
+                            p.seek(to: 21.5)
+                            record(7.5) {
+                                writeGIF(frames, delay: 1 / fps, to: "\(out)/demo.gif")
+                                print("demo.gif written: \(frames.count) frames")
+                                try? FileManager.default.removeItem(at: dir)
+                                NSApp.terminate(nil)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    static func writeGIF(_ frames: [CGImage], delay: Double, to path: String) {
+        guard let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, "com.compuserve.gif" as CFString, frames.count, nil) else { return }
+        CGImageDestinationSetProperties(dest, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+        let fp = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay, kCGImagePropertyGIFUnclampedDelayTime: delay]] as CFDictionary
+        for f in frames { CGImageDestinationAddImage(dest, f, fp) }
+        CGImageDestinationFinalize(dest)
     }
 }
 #endif
