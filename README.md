@@ -15,6 +15,22 @@ loop are synthesized by the app, and classic `.wsz` skins are loaded only when y
 
 ![Llama Amp's four windows: the main player, visualizer with pixelated cover art, 10-band equalizer and playlist](docs/screenshot.png)
 
+## Features
+
+- **Classic look**: LCD time, scrolling marquee, mini spectrum, windowshade mode, snapping windows, three sizes,
+  and real classic Winamp `.wsz` skins with a built-in browser for the Winamp Skin Museum.
+- **Sound quality**: bit-perfect output (the device follows each song's sample rate; a **1:1** light tells you when
+  nothing changes the sound), gapless playback, ReplayGain / loudness levelling, output device and AirPlay picker.
+- **EQ**: 10 bands with presets, Auto EQ that adapts to each song, per-song memory, Winamp `.eqf` import/export.
+- **DJ mixing**: beat-matched, key-aware transitions with echo-outs, a live two-deck waveform view,
+  **Harmonic Next** (picks the next song by key and tempo) and one-click DJ-set ordering.
+- **Visuals**: eight pixel visualizers, **MilkDrop** with 360+ presets, fullscreen, pixelated cover art and a
+  dancing llama.
+- **Synced lyrics**, karaoke-style, from `.lrc` files, the song's own tags or LRCLIB.
+- **Library**: music library with play counts, a tag and cover editor (MP3, FLAC, M4A), jump to file.
+- **Mac integration**: a [desktop widget](#desktop-widget) (now playing, a llama walking to the end of the song,
+  playback buttons), a menu-bar controller, a Dock icon where the llama walks too, media keys and Control Center.
+
 ## Install
 
 1. Download `Llama-Amp-<version>.dmg` from the
@@ -49,6 +65,10 @@ builds `build/dev/Llama Amp.app` with the test modes compiled in (`--audiotest [
 `--featuretest <dir>`, `--djtest`, `--djloop [n]`, `--uitest <dir>`, `--readmeshots <dir>`, `--perf`, `--visbench`, `--snapshot <dir>`). Test modes never save
 settings and never change the output device's volume or sample rate beyond the test itself.
 
+The README pictures are made by the app itself: `--readmeshots docs` (developer build) writes `screenshot.png` and
+`demo.gif`, and `Tools/WidgetShot` draws the widget (`swiftc -D WIDGET_PREVIEW Tools/WidgetShot/main.swift
+Widget/LlamaWidget.swift Sources/PixelBuffer.swift Sources/Covers.swift -o build/widgetshot && build/widgetshot docs/widget.png`).
+
 ## Keys
 
 Z prev · X play · C pause · V stop · B next · L open · ←/→ seek · ↑/↓ volume ·
@@ -71,6 +91,8 @@ Double-click a title bar to collapse it to a strip (windowshade). Drag the playl
 - **EQ presets**: save your own, import/export Winamp `.eqf` (or a whole `winamp.q1`), optional per-song EQ memory.
 
 ## Desktop widget
+
+![The Llama Amp desktop widget in small and medium sizes: cover, title, tempo and key, a pixel llama walking toward a flag as the song plays, and playback buttons](docs/widget.png)
 
 Right-click the desktop → Edit Widgets → search "Llama Amp" (small and medium sizes). The llama walks to the end of
 the song; the medium widget's buttons open `llamaamp://prev|playpause|next`. Built with the command-line tools only,

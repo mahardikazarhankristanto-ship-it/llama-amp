@@ -101,8 +101,11 @@ struct Cover: View {
 }
 
 struct LlamaWidgetView: View {
-    @Environment(\.widgetFamily) var family
+    @Environment(\.widgetFamily) var environmentFamily
     let e: Entry
+    /// Set when the view is drawn outside a widget (Tools/WidgetShot renders the README picture).
+    var preview: WidgetFamily? = nil
+    private var family: WidgetFamily { preview ?? environmentFamily }
     private var playing: Bool { e.state?.playing == true && e.state?.title.isEmpty == false }
     private var frame: Int { playing ? 1 + e.step % 2 : 0 }
     private let green = Color(red: 0, green: 0.88, blue: 0)
@@ -135,6 +138,11 @@ struct LlamaWidgetView: View {
         }
     }
 
+    /// A transport button: a link into the app (a picture of one in a preview, where links can't be drawn).
+    @ViewBuilder private func control(_ command: String, _ symbol: String) -> some View {
+        if preview != nil { Image(systemName: symbol) } else { Link(destination: URL(string: "llamaamp://\(command)")!) { Image(systemName: symbol) } }
+    }
+
     private var medium: some View {
         HStack(spacing: 12) {
             Cover(image: e.cover).frame(width: 112, height: 112)
@@ -147,9 +155,9 @@ struct LlamaWidgetView: View {
                 Spacer(minLength: 0)
                 LlamaTrack(progress: e.progress, frame: frame).frame(height: 36)
                 HStack(spacing: 18) {
-                    Link(destination: URL(string: "llamaamp://prev")!) { Image(systemName: "backward.fill") }
-                    Link(destination: URL(string: "llamaamp://playpause")!) { Image(systemName: playing ? "pause.fill" : "play.fill") }
-                    Link(destination: URL(string: "llamaamp://next")!) { Image(systemName: "forward.fill") }
+                    control("prev", "backward.fill")
+                    control("playpause", playing ? "pause.fill" : "play.fill")
+                    control("next", "forward.fill")
                 }
                 .font(.system(size: 14)).foregroundStyle(.white)
             }
@@ -157,6 +165,7 @@ struct LlamaWidgetView: View {
     }
 }
 
+#if !WIDGET_PREVIEW
 @main
 struct LlamaWidgets: WidgetBundle {
     var body: some Widget { NowPlayingWidget() }
@@ -170,3 +179,4 @@ struct NowPlayingWidget: Widget {
             .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
+#endif
