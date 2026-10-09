@@ -5,7 +5,7 @@ import AppKit
 @MainActor
 enum DevTools {
     static var runsBeforeWindows = false
-    nonisolated static let modes = ["--djtest", "--snapshot", "--skintest", "--uitest", "--perf", "--audiotest", "--featuretest", "--visbench"]
+    nonisolated static let modes = ["--djloop", "--djfirst", "--djtest", "--snapshot", "--skintest", "--uitest", "--perf", "--audiotest", "--featuretest", "--visbench"]
     nonisolated static var isTestRun: Bool { modes.contains { CommandLine.arguments.contains($0) } }
 
     /// Before the windows exist: test settings (never saved, no device changes). Returns whether a test mode is on.
@@ -28,6 +28,8 @@ enum DevTools {
     /// After start-up: the test mode itself.
     static func launch() {
         if CommandLine.arguments.contains("--djtest") { DJTest.run(); return }
+        if CommandLine.arguments.contains("--djfirst") { DJFirst.run(); return }
+        if CommandLine.arguments.contains("--djloop") { DJLoop.run(); return }
         if CommandLine.arguments.contains("--visbench") {
             // cost of each big visualizer mode per frame, with synthetic audio data
             let b = BigVis(), small = SmallVis()
@@ -332,6 +334,131 @@ enum Perf {
                 print("perf ready"); fflush(stdout)
             }
         }
+    }
+}
+
+/// Development aid (--djfirst [busy] [smart]): DJ mixing the first time songs are heard. The songs are copied to a
+/// temporary folder so nothing is cached; `busy` first queues analyses of other songs (as Analyze All, Harmonic Next
+/// or Order Playlist do), `smart` turns on Harmonic Next. Logs when each analysis lands and what kind of mix happens.
+@MainActor
+enum DJFirst {
+    static func run() {
+        let p = Player.shared, args = CommandLine.arguments
+        let busy = args.contains("busy"), smart = args.contains("smart")
+        func log(_ s: String) { print(String(format: "%7.2f ", CACurrentMediaTime().truncatingRemainder(dividingBy: 1000)) + s); fflush(stdout) }
+        let music = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music")
+        let songs = ((try? FileManager.default.contentsOfDirectory(at: music, includingPropertiesForKeys: nil)) ?? [])
+            .filter { Meta.audioExt.contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("llamaamp-djfirst-\(UUID().uuidString.prefix(6))")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let copies = songs.map { s -> URL in let d = dir.appendingPathComponent(s.lastPathComponent); try? FileManager.default.copyItem(at: s, to: d); return d }
+        defer { _ = 0 }
+        p.tracks.removeAll(); p.current = nil
+        p.settings.repeatOn = false; p.settings.shuffle = false; p.settings.vol = 0
+        p.setDJMode(2); p.settings.mixBeats = 16
+        p.applyVolume()
+        let playlist = Array(copies.prefix(3))
+        p.add(playlist, autoplay: false, quiet: true)
+        if smart { p.setSmartNext(true) }
+        if busy {
+            // as if Analyze All / Harmonic Next had just queued everything else
+            // a library's worth: hard links of the songs under new names (no disk space, no cache hits)
+            var others: [URL] = []
+            for k in 0..<60 {
+                let src = copies[k % copies.count], d = dir.appendingPathComponent("lib-\(k)-" + src.lastPathComponent)
+                try? FileManager.default.linkItem(at: src, to: d); others.append(d)
+            }
+            for u in others { AnalysisCenter.shared.analyze(u) { _ in } }
+            log("queued \(others.count) other analyses first")
+        }
+        let t0 = CACurrentMediaTime()
+        for t in p.tracks {
+            AnalysisCenter.shared.analyze(t.url) { a in log(String(format: "analysis of %@ ready after %.1f s (%@)", t.url.lastPathComponent.prefix(24) as CVarArg, CACurrentMediaTime() - t0, a?.beats.map { String(format: "%.1f BPM", $0.bpm) } ?? "no beats")) }
+        }
+        p.play(0)
+        var lastLabel = "", mixes: [String] = [], ticks = 0
+        func watch() {
+            ticks += 1
+            let a = p.audio
+            if let pl = p.dj.plan, pl.label != lastLabel { lastLabel = pl.label; mixes.append(pl.label); log("PLAN: \(pl.label) into \(pl.track.url.lastPathComponent.prefix(24)) (next ready: \(pl.track.beats != nil))") }
+            if p.dj.plan == nil, let c = p.current, a.duration > 0, a.currentTime < a.duration - 52, a.currentTime > 2 {
+                log("now \(c.url.lastPathComponent.prefix(24)) at \(Int(a.currentTime)) s: skipping to 50 s before the end")
+                p.seek(to: a.duration - 50)
+            }
+            if ticks % 10 == 0, let pl = p.dj.plan {
+                log(String(format: "  plan %@ started %d switched %d | A at %.2f / %.2f (deck playing %d) start %.2f len %.2f | B at %.2f",
+                           pl.label, p.dj.started ? 1 : 0, p.dj.isMixing ? 1 : 0, pl.from.currentTime, pl.from.duration, pl.from.isPlaying ? 1 : 0,
+                           pl.start, pl.length, pl.to.currentTime))
+            }
+            let done = p.index(of: p.current) == p.tracks.count - 1 && p.dj.plan == nil && a.currentTime > 4
+            if done || ticks > 900 || p.state == .stopped {
+                log("RESULT: \(mixes.count) of 2 transitions mixed: \(mixes)")
+                try? FileManager.default.removeItem(at: dir)
+                NSApp.terminate(nil)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { MainActor.assumeIsolated { watch() } }
+        }
+        watch()
+    }
+}
+
+/// Development aid (--djloop [n]): repeats a first-play transition n times (fresh uncached paths each time, a busy
+/// analysis queue) and checks that after the mix the next song is really playing and the mixer is free again.
+@MainActor
+enum DJLoop {
+    static func run() {
+        let p = Player.shared, args = CommandLine.arguments
+        let n = args.firstIndex(of: "--djloop").flatMap { $0 + 1 < args.count ? Int(args[$0 + 1]) : nil } ?? 5
+        func log(_ s: String) { print(String(format: "%7.2f ", CACurrentMediaTime().truncatingRemainder(dividingBy: 1000)) + s); fflush(stdout) }
+        let music = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music")
+        let songs = ((try? FileManager.default.contentsOfDirectory(at: music, includingPropertiesForKeys: nil)) ?? [])
+            .filter { Meta.audioExt.contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("llamaamp-djloop-\(UUID().uuidString.prefix(6))")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let base = songs.map { s -> URL in let d = dir.appendingPathComponent(s.lastPathComponent); try? FileManager.default.copyItem(at: s, to: d); return d }
+        p.settings.repeatOn = false; p.settings.shuffle = false; p.settings.vol = 0
+        p.setDJMode(2); p.applyVolume()
+        var round = 0, ok = 0, results: [String] = []
+        func link(_ u: URL, _ tag: String) -> URL {
+            let d = dir.appendingPathComponent("\(tag)-" + u.lastPathComponent); try? FileManager.default.linkItem(at: u, to: d); return d
+        }
+        func next() {
+            guard round < n else {
+                log("RESULT: \(ok) of \(n) first-play transitions ended with the next song playing: \(results)")
+                try? FileManager.default.removeItem(at: dir); NSApp.terminate(nil); return
+            }
+            round += 1
+            let a = link(base[(round * 2) % base.count], "r\(round)a"), b = link(base[(round * 2 + 1) % base.count], "r\(round)b")
+            p.stop(); p.tracks.removeAll(); p.current = nil
+            p.add([a, b], autoplay: false, quiet: true)
+            for k in 0..<40 { AnalysisCenter.shared.analyze(link(base[k % base.count], "r\(round)busy\(k)")) { _ in } }
+            p.play(0)
+            var phase = 0, t0 = CACurrentMediaTime(), label = ""
+            func watch() {
+                let au = p.audio, now = CACurrentMediaTime()
+                switch phase {
+                case 0 where au.currentTime > 1:
+                    p.seek(to: au.duration - 46); phase = 1; t0 = now
+                case 1:
+                    if let pl = p.dj.plan { label = pl.label }
+                    if p.current === p.tracks.last && p.dj.plan == nil { phase = 2; t0 = now }
+                    if now - t0 > 70 { results.append("R\(round) stuck: plan \(p.dj.plan?.label ?? "none") started \(p.dj.started)"); log("round \(round): STUCK \(results.last!)"); next(); return }
+                case 2 where now - t0 > 4:
+                    let playing = au.active.isPlaying && au.currentTime > 2
+                    if playing { ok += 1 }
+                    results.append("R\(round) \(label.isEmpty ? "no mix" : label): next song \(playing ? "playing" : "SILENT") at \(String(format: "%.1f", au.currentTime)) s")
+                    log("round \(round): \(results.last!)")
+                    next(); return
+                default: break
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { MainActor.assumeIsolated { watch() } }
+            }
+            watch()
+        }
+        next()
     }
 }
 #endif

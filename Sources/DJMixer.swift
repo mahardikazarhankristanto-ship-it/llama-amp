@@ -96,7 +96,7 @@ final class DJMixer {
             ensureBeats(cur); ensureBeats(nxt)
             let ready = (cur.beats != nil || cur.beatsFailed) && (nxt.beats != nil || nxt.beatsFailed)
             if !ready && pos < dur - 12 { return }   // wait for the analysis while there's time
-            if !makePlan(manual: false) { gaveUpOn = cur }
+            if !makePlan(manual: false, into: nxt) { gaveUpOn = cur }
             return
         }
         let pos = pl.from.currentTime
@@ -108,7 +108,9 @@ final class DJMixer {
         let x = (pos - pl.start) / pl.length
         automate(pl, x)
         if x >= 0.5 && !switched { doSwitch(pl) }
-        if x >= 1 { finish(pl, now) }
+        // done when the mix length has passed, or the outgoing song has run out (a mix that ends on the song's last
+        // sample can stop a hair short of x = 1 in floating point, and would otherwise never finish)
+        if x >= 0.999 || pos >= pl.from.duration - 0.02 { finish(pl, now) }
     }
 
     // MARK: planning
@@ -133,7 +135,8 @@ final class DJMixer {
         return queuedNext
     }
 
-    func ensureBeats(_ t: Track) { p.ensureAnalysis(t) }
+    /// The songs a mix needs right now: analysed on the fast lane.
+    func ensureBeats(_ t: Track) { p.ensureAnalysis(t, urgent: true) }
 
     /// Drop the remembered next song (its rule changed).
     func forgetNext() { queuedNext = nil }
@@ -144,8 +147,8 @@ final class DJMixer {
     }
 
     @discardableResult
-    private func makePlan(manual: Bool) -> Bool {
-        guard let a = p.current, let b = nextTrack() else { return false }
+    private func makePlan(manual: Bool, into next: Track? = nil) -> Bool {
+        guard let a = p.current, let b = next ?? nextTrack() else { return false }
         let from = audio.active, to = audio.other
         let pos = from.currentTime, durA = from.duration
         var start: Double, length: Double, rate = 1.0, entry: Double, style = Style.crossfade, label: String

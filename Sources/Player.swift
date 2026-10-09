@@ -152,7 +152,7 @@ final class Player {
                 try audio.load(t.url)
                 t.counted = false
                 audio.active.gain = levelGain(t)
-                ensureAnalysis(t)
+                ensureAnalysis(t, urgent: true)
                 if !EQPresets.shared.recall(t) && settings.auto { runAutoEQ(t, announce: true) }
             }
             audio.active.resetMix()   // a restart after a mix must not keep the tempo-matched speed
@@ -283,7 +283,7 @@ final class Player {
         gapTried = gapGen
         // a song at another sample rate can't follow on the same player; it starts normally (switching the device's rate)
         guard let n = dj.nextTrack(), let f = try? AVAudioFile(forReading: n.url) else { return }
-        if d.enqueue(f) { gaplessNext = n; ensureAnalysis(n) }
+        if d.enqueue(f) { gaplessNext = n; ensureAnalysis(n, urgent: true) }
     }
 
     private func gaplessAdvanced() {
@@ -292,7 +292,7 @@ final class Player {
         current = t
         t.bad = false; t.counted = false
         audio.active.gain = levelGain(t)
-        ensureAnalysis(t)
+        ensureAnalysis(t, urgent: true)
         if !EQPresets.shared.recall(t) && settings.auto { runAutoEQ(t, announce: false) }
         dj.trackStarted(t)
         loadLyrics(t)
@@ -325,8 +325,17 @@ final class Player {
             playedIDs = [c.id]
             pool = tracks.filter { $0 !== c && !$0.bad }
         }
-        // a pinch of randomness so equally good (or not yet analyzed) songs don't always come in list order
-        return pool.map { ($0, dj.cost(c, $0) + Double.random(in: 0..<0.08)) }.min { $0.1 < $1.1 }?.0
+        // a pinch of randomness so equally good (or not yet analyzed) songs don't always come in list order; fixed per
+        // song, so asking twice gives the same answer (the DJ readies the song it will actually mix into)
+        return pool.map { ($0, dj.cost(c, $0) + tieBreak($0)) }.min { $0.1 < $1.1 }?.0
+    }
+
+    private var tieBreaks: [UUID: Double] = [:]
+    private func tieBreak(_ t: Track) -> Double {
+        if let v = tieBreaks[t.id] { return v }
+        let v = Double.random(in: 0..<0.08)
+        tieBreaks[t.id] = v
+        return v
     }
 
     func setSmartNext(_ on: Bool) {
@@ -483,9 +492,10 @@ final class Player {
 
     // MARK: analysis & loudness levelling
 
-    func ensureAnalysis(_ t: Track, done: (() -> Void)? = nil) {
+    /// `urgent`: the playing or next song, which jumps ahead of bulk analyses.
+    func ensureAnalysis(_ t: Track, urgent: Bool = false, done: (() -> Void)? = nil) {
         if t.analysis != nil || t.analysisFailed { done?(); return }
-        AnalysisCenter.shared.analyze(t.url) { [weak self] a in
+        AnalysisCenter.shared.analyze(t.url, urgent: urgent) { [weak self] a in
             if let a { t.analysis = a } else { t.analysisFailed = true }
             self?.changed()
             done?()
@@ -515,7 +525,7 @@ final class Player {
         if m > 0 { leaveBitPerfect() }
         settings.levelMode = m; settings.save()
         flash(["VOLUME LEVELING: OFF", "LEVELING: PER SONG", "LEVELING: PER ALBUM"][max(0, min(2, m))])
-        if m > 0, let c = current { ensureAnalysis(c) }
+        if m > 0, let c = current { ensureAnalysis(c, urgent: true) }
     }
 
     func applyVolume() {

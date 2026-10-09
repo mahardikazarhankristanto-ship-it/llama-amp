@@ -1,5 +1,6 @@
 import AVFoundation
 import Accelerate
+import os
 
 /// Everything the DJ, leveller, library and file info know about a track's audio.
 struct TrackAnalysis: Codable {
@@ -160,7 +161,9 @@ enum TrackAnalyzer {
     }
 }
 
-/// Runs analyses one at a time in the background and caches them on disk by path, size and date.
+/// Runs analyses in the background and caches them on disk by path, size and date. Bulk requests (Analyze All,
+/// Harmonic Next, Order Playlist) wait their turn one at a time; the playing and next songs (`urgent`) skip that line
+/// on a fast lane, so a DJ mix or levelling never waits behind a whole library.
 @MainActor
 final class AnalysisCenter {
     static let shared = AnalysisCenter()
@@ -170,6 +173,9 @@ final class AnalysisCenter {
     private var verified: [String: TrackAnalysis] = [:]
     private var waiting: [String: [(TrackAnalysis?) -> Void]] = [:]
     private let queue = DispatchQueue(label: "llamaamp.analysis", qos: .utility)
+    private let fastLane = DispatchQueue(label: "llamaamp.analysis.now", qos: .userInitiated)
+    /// Paths an analysis has started on: a request queued in both lanes runs only once.
+    private nonisolated let claimed = OSAllocatedUnfairLock(initialState: Set<String>())
     private var saveScheduled = false
     private var file: URL { Demo.url.deletingLastPathComponent().appendingPathComponent("analysis.json") }
 
@@ -192,25 +198,37 @@ final class AnalysisCenter {
     }
 
     /// The file changed (e.g. its tags were edited): check it against the disk again next time.
-    func invalidate(_ url: URL) { verified.removeValue(forKey: url.path) }
+    func invalidate(_ url: URL) {
+        verified.removeValue(forKey: url.path)
+        _ = claimed.withLock { $0.remove(url.path) }
+    }
 
-    func analyze(_ url: URL, done: @escaping (TrackAnalysis?) -> Void) {
+    func analyze(_ url: URL, urgent: Bool = false, done: @escaping (TrackAnalysis?) -> Void) {
         if let a = cached(url) { done(a); return }
         let key = url.path
-        if waiting[key] != nil { waiting[key]!.append(done); return }
+        if waiting[key] != nil {
+            waiting[key]!.append(done)
+            // already waiting in the bulk line: start it now on the fast lane (whichever runs first does the work)
+            if urgent { fastLane.async { self.work(url) } }
+            return
+        }
         waiting[key] = [done]
-        queue.async {
-            let a = TrackAnalyzer.analyze(url)
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    if let a {
-                        let (size, mtime) = self.stamp(url)
-                        self.cache[key] = Entry(size: size, mtime: mtime, analysis: a)
-                        self.verified[key] = a
-                        self.scheduleSave()
-                    }
-                    for cb in self.waiting.removeValue(forKey: key) ?? [] { cb(a) }
+        (urgent ? fastLane : queue).async { self.work(url) }
+    }
+
+    private nonisolated func work(_ url: URL) {
+        let key = url.path
+        guard claimed.withLock({ $0.insert(key).inserted }) else { return }
+        let a = TrackAnalyzer.analyze(url)
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                if let a {
+                    let (size, mtime) = self.stamp(url)
+                    self.cache[key] = Entry(size: size, mtime: mtime, analysis: a)
+                    self.verified[key] = a
+                    self.scheduleSave()
                 }
+                for cb in self.waiting.removeValue(forKey: key) ?? [] { cb(a) }
             }
         }
     }
